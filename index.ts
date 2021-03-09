@@ -4,44 +4,83 @@ import cors from 'cors'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { body, query, validationResult } from 'express-validator'
+import fs from 'fs'
 
 const app = express()
 app.use(bodyParser.json())
 app.use(cors())
 
+
 const PORT = process.env.PORT || 3000
 const SECRET = "SIMPLE_SECRET"
 
+interface dbSchema {
+  users : User[]
+}
 
+interface User {
+  username: string;
+  password: string;
+  firstname: string;
+  lastname: string;
+  balance: number;
+}
 
 interface JWTPayload {
   username: string;
   password: string;
+  firstname: string;
+  lastname: string;
+  balance: number;
 }
+
+app.get('/',(req,res)=>{
+  res.json('HELLO')
+});
+
 
 app.post('/login',
   (req, res) => {
-
-    const { username, password } = req.body
+    const { username, password} = req.body
+    const raw = fs.readFileSync('db.json', 'utf8')
+    const db : dbSchema = JSON.parse(raw)
     // Use username and password to create token.
-    if(username == req.username&&password == req.password)
-      return res.status(200).json({
-        message: 'Login succesfully', "token": req.token
+    const user = db.users.find(user => user.username === username)
+    if (!user) {
+      res.status(400).json({"message": "Invalid username or password"
       })
-    else{
-      res.status(400).json({"message": "Invalid username or password"})
+      return
     }
+    if (user?.password !== password) {
+      res.status(400).json({"message": "Invalid username or password"
+      })
+      return
+    }
+    const token = jwt.sign({username: username, password: password},'SIMPLE_SECRET')
+    return res.status(200).json({"message": 'Login succesfully',"token": token})
   })
 
-app.post('/register',
+app.post('/register', 
   (req, res) => {
-
     const { username, password, firstname, lastname, balance } = req.body
-    try{
-      req.create({username,password,firstname,lastname,balance})
-      res.json({message: "Register successfully"})
-    }catch(error){
-      res.status(400).json({message: "Username is already in used"});
+    const raw = fs.readFileSync('db.json', 'utf8')
+    const db : dbSchema = JSON.parse(raw)
+    const user = db.users.find(user => user.username === username)
+    if (user) {
+      res.status(400).json({"message": "Username is already in used"
+      })
+      return
+    }
+    else {
+      db.users.push({
+        username, 
+        password, 
+        firstname, 
+        lastname, 
+        balance 
+      })
+      fs.writeFileSync('db.json', JSON.stringify(db))
+      res.status(200).json({"message": "Register successfully"})
     }
   })
 
@@ -50,60 +89,70 @@ app.get('/balance',
     const token = req.query.token as string
     try {
       const { username } = jwt.verify(token, SECRET) as JWTPayload
-      res.status(200).json({"name": username},{"balance": token})
+      const raw = fs.readFileSync('db.json', 'utf8')
+      const db : dbSchema = JSON.parse(raw)
+      const user = db.users.find(user => user.username === username)
+      if (user) {
+        res.status(200).json({
+          "name": username,
+          "balance": user.balance
+        })
+        return
+      }
     }
     catch (e) {
       //response in case of invalid token
-      res.status(401).json({message: "Invalid Token"})
+      res.status(401).json({
+        "message": "Invalid token"
+      })
     }
   })
 
 app.post('/deposit',
   body('amount').isInt({ min: 1 }),
   (req, res) => {
-    
     //Is amount <= 0 ?
     if (!validationResult(req).isEmpty())
-      res.status(400).json({message: "Invalid data" })
-    else if(!validationResult(req).isString()){
-      res.status(401).json({message: "Invalid token"})
-    }
-    else{
-      req.balance += req.amount
-      res.status(200).json({message: "Deposit successfully"},
-      {deposit: req.balance})
-    }
+      return res.status(400).json({ message: "Invalid data" })
 
   })
 
 app.post('/withdraw',
   (req, res) => {
-    if (!validationResult(req).isEmpty())
-      res.status(400).json({message: "Invalid data" })
-    else if(!validationResult(req).isString()){
-      res.status(401).json({message: "Invalid token"})
+    const token = req.query.token as string
+    try {
+      const { username } = jwt.verify(token, SECRET) as JWTPayload
+      const raw = fs.readFileSync('db.json', 'utf8')
+      const db : dbSchema = JSON.parse(raw)
+      const user = db.users.find(user => user.username === username)
     }
-    else{
-      req.balance -= req.amount
-      res.status(200).json({message: "Withdraw successfully"},
-      {balance: req.balance})
+    catch (e) {
+      //response in case of invalid token
+      res.status(401).json({
+        "message": "Invalid token"
+      })
     }
-
   })
 
 app.delete('/reset', (req, res) => {
 
   //code your database reset here
-  req.reset()
+  const raw = fs.readFileSync('db_blank.json', 'utf8')
+  const db : dbSchema = JSON.parse(raw)
+  fs.writeFileSync('db.json', JSON.stringify(db))
+  
   return res.status(200).json({
-    message: 'Reset database successfully'
+    "message": 'Reset database successfully'
   })
 })
 
 app.get('/me', (req, res) => {
-  const {firstname,lastname,code,gpa} = req.body
-  req.create({firstname,lastname,code,gpa})
-  res.status(200).json({firstname: firstname},{lastname: lastname},{code: code},{gpa:gpa})
+  res.status(200).json({
+    "firstname": "Wisarut",
+    "lastname" : "Tipbung",
+    "code" : 620610807,
+    "gpa" : 4.00
+  })
 })
 
 app.get('/demo', (req, res) => {
